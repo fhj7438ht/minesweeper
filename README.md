@@ -12,7 +12,7 @@ composer require fhj7438ht/minesweeper
 
 После установки запустите игру:
 ```bash
-./vendor/bin/minesweeper
+php ./vendor/bin/minesweeper.php
 ```
 
 ### Установка из исходного кода
