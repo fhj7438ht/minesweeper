@@ -6,11 +6,7 @@
     "autoload": {
         "psr-4": {
             "fhj7438ht\\Minesweeper\\": "src/"
-        },
-        "files": [
-            "src/Controller.php",
-            "src/View.php"
-        ]
+        }
     },
     "require": {
         "wp-cli/php-cli-tools": "0.12.5"
