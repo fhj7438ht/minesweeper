@@ -278,4 +278,50 @@ class Game
     {
         return $this->mines;
     }
+
+    /**
+     * Получение количества открытых ячеек
+     */
+    public function getOpenedCellsCount(): int
+    {
+        return $this->openedCells;
+    }
+
+    /**
+     * Получение состояния игрового поля
+     */
+    public function getBoardState(): array
+    {
+        return $this->board;
+    }
+
+    /**
+     * Получение состояния видимых ячеек
+     */
+    public function getVisibleState(): array
+    {
+        return $this->visible;
+    }
+
+    /**
+     * Восстановление состояния игры
+     */
+    public function restoreState(array $boardState, array $visibleState, bool $gameOver, bool $gameWon, int $openedCells): void
+    {
+        $this->board = $boardState;
+        $this->visible = $visibleState;
+        $this->gameOver = $gameOver;
+        $this->gameWon = $gameWon;
+        $this->openedCells = $openedCells;
+    }
+
+    /**
+     * Создание игры с заданным состоянием (для воспроизведения)
+     */
+    public static function createFromState(int $rows, int $cols, int $mines, array $boardState, array $visibleState, bool $gameOver, bool $gameWon, int $openedCells): self
+    {
+        $game = new self($rows, $cols, $mines);
+        $game->restoreState($boardState, $visibleState, $gameOver, $gameWon, $openedCells);
+        return $game;
+    }
 }

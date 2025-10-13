@@ -34,10 +34,12 @@ class View
         \cli\line("Формат ввода координат:");
         \cli\line("  строка столбец     - открыть ячейку");
         \cli\line("  M строка столбец   - отметить/снять отметку с ячейки");
+        \cli\line("  q или quit         - выйти из игры (сохранив состояние)");
         \cli\line("");
         \cli\line("Примеры:");
         \cli\line("  1 1               - открыть ячейку в строке 1, столбце 1");
         \cli\line("  M 2 3             - отметить ячейку в строке 2, столбце 3");
+        \cli\line("  q                 - выйти из игры");
         \cli\line("");
         \cli\line("Символы на поле:");
         \cli\line("  .  - закрытая ячейка");
@@ -91,7 +93,7 @@ class View
     /**
      * Запрос числа от пользователя
      */
-    public static function promptForNumber(string $message, int $default = null): int
+    public static function promptForNumber(string $message, ?int $default = null): int
     {
         $input = \cli\prompt($message);
 
@@ -142,12 +144,46 @@ class View
     /**
      * Отображение списка игр
      */
-    public static function showGameList(): void
+    public static function showGameList(array $games = []): void
     {
         \cli\line("=== Список сохраненных игр ===");
         \cli\line("");
-        \cli\line("Игра пока не сохраняется в базе данных.");
-        \cli\line("Эта функция будет доступна в следующих версиях.");
+
+        if (empty($games)) {
+            \cli\line("Сохраненных игр не найдено.");
+            \cli\line("");
+            return;
+        }
+
+        \cli\line(sprintf("%-4s %-15s %-13s %-19s %-15s %-24s %-25s %-20s", "ID", "Игрок", "Строки", "Столбцы", "Мины", "Статус", "Создана", "Обновлена"));
+        \cli\line(str_repeat("-", 115));
+
+        foreach ($games as $game) {
+            $status = "Активна";
+            if ($game['game_over']) {
+                $status = "Проигрыш";
+            } elseif ($game['game_won']) {
+                $status = "Победа";
+            }
+
+            $created = date('Y-m-d H:i:s', strtotime($game['created_at']));
+            $updated = date('Y-m-d H:i:s', strtotime($game['updated_at']));
+
+            \cli\line(sprintf(
+                "%-4d %-15s %-8d %-8d %-8d %-12s %-20s %-20s",
+                $game['id'],
+                $game['player_name'],
+                $game['rows'],
+                $game['cols'],
+                $game['mines'],
+                $status,
+                $created,
+                $updated
+            ));
+        }
+
+        \cli\line("");
+        \cli\line("Для воспроизведения игры используйте: minesweeper --replay <ID>");
         \cli\line("");
     }
 
@@ -157,9 +193,6 @@ class View
     public static function showReplayMessage(string $gameId): void
     {
         \cli\line("=== Повтор игры #{$gameId} ===");
-        \cli\line("");
-        \cli\line("Игра пока не сохраняется в базе данных.");
-        \cli\line("Эта функция будет доступна в следующих версиях.");
         \cli\line("");
     }
 }
