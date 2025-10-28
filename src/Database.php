@@ -2,16 +2,16 @@
 
 namespace fhj7438ht\Minesweeper;
 
-use PDO;
-use PDOException;
+use RedBeanPHP\R;
+use RedBeanPHP\RedException\SQL;
 
 /**
- * Класс для работы с базой данных SQLite
+ * Класс для работы с базой данных SQLite через RedBeanPHP ORM
  */
 class Database
 {
-    private PDO $pdo;
     private string $dbPath;
+    private bool $isConnected = false;
 
     public function __construct(string $dbPath = 'minesweeper.db')
     {
@@ -21,15 +21,19 @@ class Database
     }
 
     /**
-     * Подключение к базе данных SQLite
+     * Подключение к базе данных SQLite через RedBeanPHP
      */
     private function connect(): void
     {
         try {
-            $this->pdo = new PDO("sqlite:{$this->dbPath}");
-            $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
+            // Настройка RedBeanPHP для работы с SQLite
+            R::setup('sqlite:' . $this->dbPath);
+            
+            // Включаем режим "заморозки" для продакшена
+            R::freeze(false);
+            
+            $this->isConnected = true;
+        } catch (SQL $e) {
             throw new \RuntimeException("Ошибка подключения к базе данных: " . $e->getMessage());
         }
     }
@@ -39,63 +43,68 @@ class Database
      */
     private function initializeTables(): void
     {
-        $sql = "
-            CREATE TABLE IF NOT EXISTS games (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_name TEXT NOT NULL,
-                rows INTEGER NOT NULL,
-                cols INTEGER NOT NULL,
-                mines INTEGER NOT NULL,
-                board_state TEXT NOT NULL,
-                visible_state TEXT NOT NULL,
-                game_over BOOLEAN NOT NULL DEFAULT 0,
-                game_won BOOLEAN NOT NULL DEFAULT 0,
-                opened_cells INTEGER NOT NULL DEFAULT 0,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ";
-
-        $sql2 = "
-            CREATE TABLE IF NOT EXISTS moves (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id INTEGER NOT NULL,
-                move_number INTEGER NOT NULL,
-                row INTEGER NOT NULL,
-                col INTEGER NOT NULL,
-                action TEXT NOT NULL,
-                result TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (game_id) REFERENCES games (id) ON DELETE CASCADE
-            )
-        ";
-
         try {
-            $this->pdo->exec($sql);
-            $this->pdo->exec($sql2);
-        } catch (PDOException $e) {
+            // Создаем таблицу games если её нет
+            $gamesTable = R::dispense('games');
+            $gamesTable->player_name = 'temp';
+            $gamesTable->rows = 1;
+            $gamesTable->cols = 1;
+            $gamesTable->mines = 1;
+            $gamesTable->board_state = 'temp';
+            $gamesTable->visible_state = 'temp';
+            $gamesTable->game_over = false;
+            $gamesTable->game_won = false;
+            $gamesTable->opened_cells = 0;
+            $gamesTable->created_at = date('Y-m-d H:i:s');
+            $gamesTable->updated_at = date('Y-m-d H:i:s');
+            
+            $gameId = R::store($gamesTable);
+            
+            // Удаляем тестовую запись
+            R::trash($gamesTable);
+            
+            // Создаем таблицу moves если её нет
+            $movesTable = R::dispense('moves');
+            $movesTable->game_id = 1;
+            $movesTable->move_number = 1;
+            $movesTable->row = 0;
+            $movesTable->col = 0;
+            $movesTable->action = 'temp';
+            $movesTable->result = 'temp';
+            $movesTable->created_at = date('Y-m-d H:i:s');
+            
+            $moveId = R::store($movesTable);
+            
+            // Удаляем тестовую запись
+            R::trash($movesTable);
+            
+        } catch (SQL $e) {
             throw new \RuntimeException("Ошибка создания таблиц: " . $e->getMessage());
         }
     }
 
     /**
-     * Получение объекта PDO для выполнения запросов
+     * Получение объекта RedBeanPHP для выполнения операций
      */
-    public function getPdo(): PDO
+    public function getRedBean(): \RedBeanPHP\ToolBox
     {
-        return $this->pdo;
+        if (!$this->isConnected) {
+            throw new \RuntimeException("База данных не подключена");
+        }
+        return R::getToolBox();
     }
 
     /**
-     * Выполнение SQL запроса с параметрами
+     * Выполнение SQL запроса с параметрами (для совместимости)
      */
     public function query(string $sql, array $params = []): \PDOStatement
     {
         try {
-            $stmt = $this->pdo->prepare($sql);
+            $pdo = R::getPDO();
+            $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
             return $stmt;
-        } catch (PDOException $e) {
+        } catch (SQL $e) {
             throw new \RuntimeException("Ошибка выполнения запроса: " . $e->getMessage());
         }
     }
@@ -105,7 +114,11 @@ class Database
      */
     public function getLastInsertId(): int
     {
-        return (int)$this->pdo->lastInsertId();
+        try {
+            return (int)R::getInsertID();
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка получения ID: " . $e->getMessage());
+        }
     }
 
     /**
@@ -113,7 +126,12 @@ class Database
      */
     public function beginTransaction(): bool
     {
-        return $this->pdo->beginTransaction();
+        try {
+            R::begin();
+            return true;
+        } catch (SQL $e) {
+            return false;
+        }
     }
 
     /**
@@ -121,7 +139,12 @@ class Database
      */
     public function commit(): bool
     {
-        return $this->pdo->commit();
+        try {
+            R::commit();
+            return true;
+        } catch (SQL $e) {
+            return false;
+        }
     }
 
     /**
@@ -129,6 +152,30 @@ class Database
      */
     public function rollback(): bool
     {
-        return $this->pdo->rollback();
+        try {
+            R::rollback();
+            return true;
+        } catch (SQL $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Закрытие соединения с базой данных
+     */
+    public function close(): void
+    {
+        if ($this->isConnected) {
+            R::close();
+            $this->isConnected = false;
+        }
+    }
+
+    /**
+     * Деструктор для автоматического закрытия соединения
+     */
+    public function __destruct()
+    {
+        $this->close();
     }
 }

@@ -9,6 +9,7 @@
         }
     },
     "require": {
-        "wp-cli/php-cli-tools": "0.12.5"
+        "wp-cli/php-cli-tools": "0.12.5",
+        "gabordemooij/redbean": "^5.7"
     }
 }

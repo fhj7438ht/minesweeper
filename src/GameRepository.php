@@ -2,8 +2,11 @@
 
 namespace fhj7438ht\Minesweeper;
 
+use RedBeanPHP\R;
+use RedBeanPHP\RedException\SQL;
+
 /**
- * Класс для управления данными игр в базе данных
+ * Класс для управления данными игр в базе данных через RedBeanPHP ORM
  */
 class GameRepository
 {
@@ -19,25 +22,26 @@ class GameRepository
      */
     public function saveGame(Game $game, string $playerName): int
     {
-        $sql = "
-            INSERT INTO games (player_name, rows, cols, mines, board_state, visible_state, game_over, game_won, opened_cells)
-            VALUES (:player_name, :rows, :cols, :mines, :board_state, :visible_state, :game_over, :game_won, :opened_cells)
-        ";
+        try {
+            $gameBean = R::dispense('games');
+            
+            $gameBean->player_name = $playerName;
+            $gameBean->rows = $game->getDimensions()['rows'];
+            $gameBean->cols = $game->getDimensions()['cols'];
+            $gameBean->mines = $game->getMinesCount();
+            $gameBean->board_state = $this->serializeGameState($game);
+            $gameBean->visible_state = $this->serializeVisibleState($game);
+            $gameBean->game_over = $game->isGameOver();
+            $gameBean->game_won = $game->isGameWon();
+            $gameBean->opened_cells = $game->getOpenedCellsCount();
+            $gameBean->created_at = date('Y-m-d H:i:s');
+            $gameBean->updated_at = date('Y-m-d H:i:s');
 
-        $params = [
-            'player_name' => $playerName,
-            'rows' => $game->getDimensions()['rows'],
-            'cols' => $game->getDimensions()['cols'],
-            'mines' => $game->getMinesCount(),
-            'board_state' => $this->serializeGameState($game),
-            'visible_state' => $this->serializeVisibleState($game),
-            'game_over' => $game->isGameOver() ? 1 : 0,
-            'game_won' => $game->isGameWon() ? 1 : 0,
-            'opened_cells' => $game->getOpenedCellsCount()
-        ];
-
-        $this->database->query($sql, $params);
-        return $this->database->getLastInsertId();
+            $gameId = R::store($gameBean);
+            return (int)$gameId;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка сохранения игры: " . $e->getMessage());
+        }
     }
 
     /**
@@ -45,28 +49,25 @@ class GameRepository
      */
     public function updateGame(int $gameId, Game $game): bool
     {
-        $sql = "
-            UPDATE games 
-            SET board_state = :board_state, 
-                visible_state = :visible_state, 
-                game_over = :game_over, 
-                game_won = :game_won, 
-                opened_cells = :opened_cells,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = :id
-        ";
+        try {
+            $gameBean = R::load('games', $gameId);
+            
+            if (!$gameBean->id) {
+                return false;
+            }
 
-        $params = [
-            'id' => $gameId,
-            'board_state' => $this->serializeGameState($game),
-            'visible_state' => $this->serializeVisibleState($game),
-            'game_over' => $game->isGameOver() ? 1 : 0,
-            'game_won' => $game->isGameWon() ? 1 : 0,
-            'opened_cells' => $game->getOpenedCellsCount()
-        ];
+            $gameBean->board_state = $this->serializeGameState($game);
+            $gameBean->visible_state = $this->serializeVisibleState($game);
+            $gameBean->game_over = $game->isGameOver();
+            $gameBean->game_won = $game->isGameWon();
+            $gameBean->opened_cells = $game->getOpenedCellsCount();
+            $gameBean->updated_at = date('Y-m-d H:i:s');
 
-        $stmt = $this->database->query($sql, $params);
-        return $stmt->rowCount() > 0;
+            R::store($gameBean);
+            return true;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка обновления игры: " . $e->getMessage());
+        }
     }
 
     /**
@@ -74,15 +75,17 @@ class GameRepository
      */
     public function loadGame(int $gameId): ?Game
     {
-        $sql = "SELECT * FROM games WHERE id = :id";
-        $stmt = $this->database->query($sql, ['id' => $gameId]);
-        $data = $stmt->fetch();
+        try {
+            $gameBean = R::load('games', $gameId);
+            
+            if (!$gameBean->id) {
+                return null;
+            }
 
-        if (!$data) {
-            return null;
+            return $this->deserializeGame($gameBean);
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка загрузки игры: " . $e->getMessage());
         }
-
-        return $this->deserializeGame($data);
     }
 
     /**
@@ -90,9 +93,28 @@ class GameRepository
      */
     public function getAllGames(): array
     {
-        $sql = "SELECT id, player_name, rows, cols, mines, game_over, game_won, created_at, updated_at FROM games ORDER BY created_at DESC";
-        $stmt = $this->database->query($sql);
-        return $stmt->fetchAll();
+        try {
+            $games = R::findAll('games', 'ORDER BY created_at DESC');
+            
+            $result = [];
+            foreach ($games as $gameBean) {
+                $result[] = [
+                    'id' => $gameBean->id,
+                    'player_name' => $gameBean->player_name,
+                    'rows' => $gameBean->rows,
+                    'cols' => $gameBean->cols,
+                    'mines' => $gameBean->mines,
+                    'game_over' => $gameBean->game_over,
+                    'game_won' => $gameBean->game_won,
+                    'created_at' => $gameBean->created_at,
+                    'updated_at' => $gameBean->updated_at
+                ];
+            }
+            
+            return $result;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка получения списка игр: " . $e->getMessage());
+        }
     }
 
     /**
@@ -100,9 +122,26 @@ class GameRepository
      */
     public function getActiveGames(): array
     {
-        $sql = "SELECT id, player_name, rows, cols, mines, created_at, updated_at FROM games WHERE game_over = 0 AND game_won = 0 ORDER BY updated_at DESC";
-        $stmt = $this->database->query($sql);
-        return $stmt->fetchAll();
+        try {
+            $games = R::find('games', 'game_over = ? AND game_won = ? ORDER BY updated_at DESC', [false, false]);
+            
+            $result = [];
+            foreach ($games as $gameBean) {
+                $result[] = [
+                    'id' => $gameBean->id,
+                    'player_name' => $gameBean->player_name,
+                    'rows' => $gameBean->rows,
+                    'cols' => $gameBean->cols,
+                    'mines' => $gameBean->mines,
+                    'created_at' => $gameBean->created_at,
+                    'updated_at' => $gameBean->updated_at
+                ];
+            }
+            
+            return $result;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка получения активных игр: " . $e->getMessage());
+        }
     }
 
     /**
@@ -110,9 +149,18 @@ class GameRepository
      */
     public function deleteGame(int $gameId): bool
     {
-        $sql = "DELETE FROM games WHERE id = :id";
-        $stmt = $this->database->query($sql, ['id' => $gameId]);
-        return $stmt->rowCount() > 0;
+        try {
+            $gameBean = R::load('games', $gameId);
+            
+            if (!$gameBean->id) {
+                return false;
+            }
+
+            R::trash($gameBean);
+            return true;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка удаления игры: " . $e->getMessage());
+        }
     }
 
     /**
@@ -120,21 +168,21 @@ class GameRepository
      */
     public function saveMove(int $gameId, int $moveNumber, int $row, int $col, string $action, string $result): void
     {
-        $sql = "
-            INSERT INTO moves (game_id, move_number, row, col, action, result)
-            VALUES (:game_id, :move_number, :row, :col, :action, :result)
-        ";
+        try {
+            $moveBean = R::dispense('moves');
+            
+            $moveBean->game_id = $gameId;
+            $moveBean->move_number = $moveNumber;
+            $moveBean->row = $row;
+            $moveBean->col = $col;
+            $moveBean->action = $action;
+            $moveBean->result = $result;
+            $moveBean->created_at = date('Y-m-d H:i:s');
 
-        $params = [
-            'game_id' => $gameId,
-            'move_number' => $moveNumber,
-            'row' => $row,
-            'col' => $col,
-            'action' => $action,
-            'result' => $result
-        ];
-
-        $this->database->query($sql, $params);
+            R::store($moveBean);
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка сохранения хода: " . $e->getMessage());
+        }
     }
 
     /**
@@ -142,9 +190,27 @@ class GameRepository
      */
     public function getGameMoves(int $gameId): array
     {
-        $sql = "SELECT * FROM moves WHERE game_id = :game_id ORDER BY move_number";
-        $stmt = $this->database->query($sql, ['game_id' => $gameId]);
-        return $stmt->fetchAll();
+        try {
+            $moves = R::find('moves', 'game_id = ? ORDER BY move_number', [$gameId]);
+            
+            $result = [];
+            foreach ($moves as $moveBean) {
+                $result[] = [
+                    'id' => $moveBean->id,
+                    'game_id' => $moveBean->game_id,
+                    'move_number' => $moveBean->move_number,
+                    'row' => $moveBean->row,
+                    'col' => $moveBean->col,
+                    'action' => $moveBean->action,
+                    'result' => $moveBean->result,
+                    'created_at' => $moveBean->created_at
+                ];
+            }
+            
+            return $result;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка получения ходов игры: " . $e->getMessage());
+        }
     }
 
     /**
@@ -152,10 +218,12 @@ class GameRepository
      */
     public function getNextMoveNumber(int $gameId): int
     {
-        $sql = "SELECT MAX(move_number) as max_move FROM moves WHERE game_id = :game_id";
-        $stmt = $this->database->query($sql, ['game_id' => $gameId]);
-        $result = $stmt->fetch();
-        return ($result['max_move'] ?? 0) + 1;
+        try {
+            $maxMove = R::getCell('SELECT MAX(move_number) FROM moves WHERE game_id = ?', [$gameId]);
+            return ($maxMove ?? 0) + 1;
+        } catch (SQL $e) {
+            throw new \RuntimeException("Ошибка получения номера хода: " . $e->getMessage());
+        }
     }
 
     /**
@@ -177,15 +245,15 @@ class GameRepository
     /**
      * Десериализация игры из данных базы
      */
-    private function deserializeGame(array $data): Game
+    private function deserializeGame($gameBean): Game
     {
-        $game = new Game($data['rows'], $data['cols'], $data['mines']);
+        $game = new Game($gameBean->rows, $gameBean->cols, $gameBean->mines);
         
         // Восстанавливаем состояние игрового поля
-        $boardState = unserialize(base64_decode($data['board_state']));
-        $visibleState = unserialize(base64_decode($data['visible_state']));
+        $boardState = unserialize(base64_decode($gameBean->board_state));
+        $visibleState = unserialize(base64_decode($gameBean->visible_state));
         
-        $game->restoreState($boardState, $visibleState, $data['game_over'], $data['game_won'], $data['opened_cells']);
+        $game->restoreState($boardState, $visibleState, $gameBean->game_over, $gameBean->game_won, $gameBean->opened_cells);
         
         return $game;
     }
